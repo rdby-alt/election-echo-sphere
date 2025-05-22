@@ -2,374 +2,397 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useElectionContext } from '@/contexts/ElectionContext';
-import CandidateCard from '@/components/CandidateCard';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import PositionsAndCandidates from '@/components/election/PositionsAndCandidates';
 import { format } from 'date-fns';
-import { Calendar, Clock, Info, Users } from 'lucide-react';
 import { toast } from "sonner";
 
 const ElectionDetailPage: React.FC = () => {
   const { electionId } = useParams<{ electionId: string }>();
   const navigate = useNavigate();
-  const { 
-    elections, 
-    setCurrentElection, 
-    currentElection, 
-    currentUser,
-    publishResults
-  } = useElectionContext();
-  const [activeTab, setActiveTab] = useState('overview');
+  const { elections, setCurrentElection, updateElection, deleteElection, publishResults } = useElectionContext();
+  const [editMode, setEditMode] = useState(false);
+  const [formState, setFormState] = useState({
+    name: '',
+    description: '',
+    startDate: '',
+    endDate: ''
+  });
 
   useEffect(() => {
-    if (electionId) {
-      const election = elections.find(e => e.id === electionId);
-      if (election) {
-        setCurrentElection(election);
-      } else {
-        // Election not found
-        navigate('/');
-        toast.error("Election not found");
-      }
+    if (!electionId) return;
+
+    const election = elections.find(e => e.id === electionId);
+    if (election) {
+      setCurrentElection(election);
+      setFormState({
+        name: election.name,
+        description: election.description || '',
+        startDate: election.startDate ? formatDateTimeForInput(election.startDate) : '',
+        endDate: election.endDate ? formatDateTimeForInput(election.endDate) : ''
+      });
+    } else {
+      navigate('/');
     }
 
     return () => {
-      // Clean up
       setCurrentElection(null);
     };
-  }, [electionId, elections, setCurrentElection, navigate]);
+  }, [electionId, elections, navigate, setCurrentElection]);
 
-  if (!currentElection) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-t-election-accent border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-lg">Loading election details...</p>
-        </div>
-      </div>
-    );
-  }
+  const formatDateTimeForInput = (date: Date): string => {
+    return new Date(date).toISOString().slice(0, 16);
+  };
 
-  const isActive = currentElection.status === 'active';
-  const isPublished = currentElection.status === 'published';
-  const hasVoted = currentUser?.hasVoted && currentUser.hasVoted[currentElection.id];
-  const canVote = isActive && currentUser && !hasVoted;
-  const canPublish = currentElection.status === 'ended';
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormState(prev => ({ ...prev, [name]: value }));
+  };
 
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'general': return 'General Election';
-      case 'department': return 'Department Election';
-      case 'custom': return 'Custom Election';
-      default: return 'Election';
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!electionId) return;
+
+    const updates: any = {
+      name: formState.name,
+      description: formState.description,
+    };
+
+    if (formState.startDate) {
+      updates.startDate = new Date(formState.startDate);
+    }
+
+    if (formState.endDate) {
+      updates.endDate = new Date(formState.endDate);
+    }
+
+    updateElection(electionId, updates);
+    setEditMode(false);
+  };
+
+  const handleDelete = () => {
+    if (!electionId) return;
+
+    if (window.confirm('Are you sure you want to delete this election? This action cannot be undone.')) {
+      deleteElection(electionId);
+      navigate('/');
     }
   };
 
   const handlePublishResults = () => {
-    if (currentElection) {
-      publishResults(currentElection.id);
+    if (!electionId) return;
+
+    if (window.confirm('Are you sure you want to publish the results? This will make the results visible to all voters.')) {
+      publishResults(electionId);
+      toast.success("Results published successfully");
     }
   };
 
-  // Find position winners
-  const getPositionWinner = (positionId: string) => {
-    const position = currentElection.positions.find(p => p.id === positionId);
-    if (!position || !position.candidates.length) return null;
-    
-    let maxVotes = -1;
-    let winner = null;
-    
-    for (const candidate of position.candidates) {
-      if (typeof candidate.votes === 'number' && candidate.votes > maxVotes) {
-        maxVotes = candidate.votes;
-        winner = candidate;
-      }
+  const handleStartElection = () => {
+    if (!electionId) return;
+
+    updateElection(electionId, { status: 'active' });
+    toast.success("Election started successfully");
+  };
+
+  const handleEndElection = () => {
+    if (!electionId) return;
+
+    updateElection(electionId, { status: 'ended' });
+    toast.success("Election ended successfully");
+  };
+
+  const election = elections.find(e => e.id === electionId);
+
+  if (!election) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <p>Loading election details...</p>
+      </div>
+    );
+  }
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return <Badge variant="outline">Draft</Badge>;
+      case 'upcoming':
+        return <Badge variant="secondary">Upcoming</Badge>;
+      case 'active':
+        return <Badge variant="success" className="bg-green-100 text-green-800">Active</Badge>;
+      case 'ended':
+        return <Badge variant="destructive" className="bg-orange-100 text-orange-800">Ended</Badge>;
+      case 'published':
+        return <Badge variant="default" className="bg-blue-100 text-blue-800">Published</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
     }
-    
-    return winner;
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex justify-between items-center">
         <div>
-          <div className="flex items-center gap-2">
-            {currentElection.status === 'active' && (
-              <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-semibold">
-                Active
-              </span>
-            )}
-            {currentElection.status === 'upcoming' && (
-              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-semibold">
-                Upcoming
-              </span>
-            )}
-            {currentElection.status === 'ended' && (
-              <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded text-xs font-semibold">
-                Ended
-              </span>
-            )}
-            {currentElection.status === 'published' && (
-              <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs font-semibold">
-                Results Published
-              </span>
-            )}
-            {currentElection.status === 'draft' && (
-              <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs font-semibold">
-                Draft
-              </span>
-            )}
-            <span className="text-gray-500">•</span>
-            <span className="text-sm text-gray-600">{getTypeLabel(currentElection.type)}</span>
+          <h1 className="text-3xl font-bold mb-2">{election.name}</h1>
+          <div className="flex items-center space-x-2">
+            {getStatusBadge(election.status)}
+            <span className="text-gray-500 text-sm">
+              Created on {format(new Date(election.createdAt), 'MMM d, yyyy')}
+            </span>
           </div>
-          <h1 className="text-3xl font-bold mt-2">{currentElection.name}</h1>
         </div>
-        
-        {canVote ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Ready to vote</span>
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-          </div>
-        ) : hasVoted ? (
-          <div className="text-sm font-medium text-gray-600">You have already voted</div>
-        ) : null}
-        
-        {canPublish && (
-          <Button 
-            className="bg-election-accent hover:bg-yellow-400 text-black"
-            onClick={handlePublishResults}
-          >
-            Publish Results
-          </Button>
-        )}
+        <div className="space-x-2">
+          {election.status === 'draft' && (
+            <Button onClick={handleStartElection} className="bg-green-600 hover:bg-green-700">
+              Start Election
+            </Button>
+          )}
+          
+          {election.status === 'active' && (
+            <Button onClick={handleEndElection} className="bg-orange-600 hover:bg-orange-700">
+              End Election
+            </Button>
+          )}
+          
+          {election.status === 'ended' && (
+            <Button onClick={handlePublishResults} className="bg-blue-600 hover:bg-blue-700">
+              Publish Results
+            </Button>
+          )}
+        </div>
       </div>
-      
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="w-full">
-          <TabsTrigger value="overview" className="flex-1">Overview</TabsTrigger>
-          <TabsTrigger value="positions" className="flex-1">Positions & Candidates</TabsTrigger>
-          {isPublished && <TabsTrigger value="results" className="flex-1">Results</TabsTrigger>}
+
+      <Tabs defaultValue="details">
+        <TabsList>
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="positions">Positions & Candidates</TabsTrigger>
+          <TabsTrigger value="voting">Voting</TabsTrigger>
         </TabsList>
         
-        <TabsContent value="overview" className="space-y-6 pt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-lg border shadow-sm">
-              <h2 className="text-xl font-semibold mb-4">Election Information</h2>
-              
-              {currentElection.description && (
-                <div className="mb-4">
-                  <p className="text-gray-700">{currentElection.description}</p>
+        <TabsContent value="details" className="space-y-6 mt-6">
+          {editMode ? (
+            <form onSubmit={handleSubmit}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Edit Election Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Election Name</Label>
+                    <Input 
+                      id="name"
+                      name="name"
+                      value={formState.name}
+                      onChange={handleChange}
+                      required
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea 
+                      id="description"
+                      name="description"
+                      value={formState.description}
+                      onChange={handleChange}
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="startDate">Start Date & Time</Label>
+                      <Input 
+                        id="startDate"
+                        name="startDate"
+                        type="datetime-local"
+                        value={formState.startDate}
+                        onChange={handleChange}
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="endDate">End Date & Time</Label>
+                      <Input 
+                        id="endDate"
+                        name="endDate"
+                        type="datetime-local"
+                        value={formState.endDate}
+                        onChange={handleChange}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+                
+                <div className="flex justify-end space-x-2 p-6 pt-0">
+                  <Button variant="outline" onClick={() => setEditMode(false)}>Cancel</Button>
+                  <Button type="submit">Save Changes</Button>
                 </div>
-              )}
-              
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <Info className="h-5 w-5 text-gray-500 mt-0.5" />
+              </Card>
+            </form>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Election Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <h3 className="font-medium text-gray-700">Description</h3>
+                  <p className="mt-1">{election.description || 'No description provided.'}</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <div className="font-medium">Type</div>
-                    <div className="text-sm text-gray-600">{getTypeLabel(currentElection.type)}</div>
+                    <h3 className="font-medium text-gray-700">Election Type</h3>
+                    <p className="mt-1 capitalize">{election.type}</p>
+                  </div>
+                  
+                  <div>
+                    <h3 className="font-medium text-gray-700">Status</h3>
+                    <div className="mt-1">{getStatusBadge(election.status)}</div>
                   </div>
                 </div>
                 
-                {(currentElection.startDate || currentElection.endDate) && (
-                  <div className="flex items-start gap-3">
-                    <Clock className="h-5 w-5 text-gray-500 mt-0.5" />
-                    <div>
-                      <div className="font-medium">Schedule</div>
-                      <div className="text-sm text-gray-600">
-                        {currentElection.startDate && (
-                          <div>Start: {format(new Date(currentElection.startDate), 'PPP p')}</div>
-                        )}
-                        {currentElection.endDate && (
-                          <div>End: {format(new Date(currentElection.endDate), 'PPP p')}</div>
-                        )}
-                      </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="font-medium text-gray-700">Start Date</h3>
+                    <p className="mt-1">
+                      {election.startDate 
+                        ? format(new Date(election.startDate), 'PPpp')
+                        : 'Not set'}
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <h3 className="font-medium text-gray-700">End Date</h3>
+                    <p className="mt-1">
+                      {election.endDate 
+                        ? format(new Date(election.endDate), 'PPpp')
+                        : 'Not set'}
+                    </p>
+                  </div>
+                </div>
+                
+                {election.type === 'department' && election.departments && (
+                  <div>
+                    <h3 className="font-medium text-gray-700">Departments</h3>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {election.departments.map(dept => (
+                        <Badge key={dept} variant="outline" className="bg-blue-50">
+                          {dept}
+                        </Badge>
+                      ))}
                     </div>
                   </div>
                 )}
                 
-                <div className="flex items-start gap-3">
-                  <Users className="h-5 w-5 text-gray-500 mt-0.5" />
+                {election.type === 'custom' && election.customVotersList && (
                   <div>
-                    <div className="font-medium">Eligibility</div>
-                    <div className="text-sm text-gray-600">
-                      {currentElection.type === 'general' && 'All company employees'}
-                      {currentElection.type === 'department' && currentElection.departments?.length && (
-                        <div>Members of: {currentElection.departments.join(', ')}</div>
-                      )}
-                      {currentElection.type === 'custom' && (
-                        <div>Custom list of {currentElection.customVotersList?.length || 0} voters</div>
-                      )}
+                    <h3 className="font-medium text-gray-700">Custom Voters</h3>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {election.customVotersList.map(voter => (
+                        <Badge key={voter} variant="outline" className="bg-purple-50">
+                          {voter}
+                        </Badge>
+                      ))}
                     </div>
                   </div>
-                </div>
+                )}
+              </CardContent>
+              
+              <div className="flex justify-end space-x-2 p-6 pt-0">
+                <Button variant="outline" onClick={() => setEditMode(true)}>Edit Details</Button>
+                <Button variant="destructive" onClick={handleDelete}>Delete Election</Button>
               </div>
-            </div>
-            
-            <div className="bg-white p-6 rounded-lg border shadow-sm">
-              <h2 className="text-xl font-semibold mb-4">Positions</h2>
-              {currentElection.positions.length === 0 ? (
-                <div className="text-gray-500 text-center py-8">No positions have been added to this election yet.</div>
-              ) : (
-                <div className="space-y-4">
-                  {currentElection.positions.map(position => (
-                    <div key={position.id} className="border-b pb-3 last:border-0">
-                      <h3 className="text-lg font-medium">{position.title}</h3>
-                      {position.description && (
-                        <p className="text-gray-600 text-sm mt-1">{position.description}</p>
-                      )}
-                      <div className="mt-2 text-sm text-gray-500">
-                        {position.candidates.length} {position.candidates.length === 1 ? 'Candidate' : 'Candidates'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {hasVoted && (
-            <div className="p-6 bg-green-50 rounded-lg border border-green-200">
-              <h3 className="text-lg font-medium text-green-800">Thank you for voting!</h3>
-              <p className="text-green-700 mt-1">
-                You have successfully cast your vote in this election. Results will be available after the election concludes.
-              </p>
-            </div>
-          )}
-          
-          {isActive && !currentUser && (
-            <div className="p-6 bg-yellow-50 rounded-lg border border-yellow-200">
-              <h3 className="text-lg font-medium text-yellow-800">Login to Vote</h3>
-              <p className="text-yellow-700 mt-1">
-                This election is currently active. Please login to cast your vote.
-              </p>
-              <Button variant="outline" className="mt-3" onClick={() => navigate('/login')}>
-                Go to Login
-              </Button>
-            </div>
+            </Card>
           )}
         </TabsContent>
         
-        <TabsContent value="positions" className="pt-4">
-          {currentElection.positions.length === 0 ? (
-            <div className="text-center py-12 bg-gray-50 rounded-lg border">
-              <h3 className="text-xl font-medium text-gray-700">No Positions Added</h3>
-              <p className="mt-2 text-gray-500">This election doesn't have any positions yet.</p>
-            </div>
-          ) : (
-            <div className="space-y-10">
-              {currentElection.positions.map(position => {
-                const winner = isPublished ? getPositionWinner(position.id) : null;
+        <TabsContent value="positions" className="space-y-6 mt-6">
+          <PositionsAndCandidates electionId={election.id} />
+        </TabsContent>
+        
+        <TabsContent value="voting" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Voting Management</CardTitle>
+              <CardDescription>Configure voting settings and view statistics</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div>
+                  <h3 className="font-medium text-gray-700 mb-2">Voting Status</h3>
+                  <div className="flex items-center space-x-2">
+                    {getStatusBadge(election.status)}
+                    <span>
+                      {election.status === 'draft' && 'Election is in draft mode. Start it when ready.'}
+                      {election.status === 'upcoming' && 'Election is scheduled but not yet active.'}
+                      {election.status === 'active' && 'Voting is currently open.'}
+                      {election.status === 'ended' && 'Voting is closed but results are not published.'}
+                      {election.status === 'published' && 'Results are published and visible to voters.'}
+                    </span>
+                  </div>
+                </div>
                 
-                return (
-                  <div key={position.id} className="space-y-4">
-                    <div className="border-b pb-2">
-                      <h2 className="text-2xl font-semibold">{position.title}</h2>
-                      {position.description && (
-                        <p className="text-gray-600 mt-1">{position.description}</p>
-                      )}
+                <Separator />
+                
+                <div>
+                  <h3 className="font-medium text-gray-700 mb-2">Election Timeline</h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Start Date:</span>
+                      <span>
+                        {election.startDate 
+                          ? format(new Date(election.startDate), 'PPpp')
+                          : 'Not set'}
+                      </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span>End Date:</span>
+                      <span>
+                        {election.endDate 
+                          ? format(new Date(election.endDate), 'PPpp')
+                          : 'Not set'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                <Separator />
+                
+                <div className="space-y-4">
+                  <h3 className="font-medium text-gray-700">Actions</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {election.status === 'draft' && (
+                      <Button onClick={handleStartElection} className="bg-green-600 hover:bg-green-700">
+                        Start Election
+                      </Button>
+                    )}
                     
-                    {position.candidates.length === 0 ? (
-                      <div className="text-gray-500 text-center py-6 bg-gray-50 rounded-lg">
-                        No candidates have been added for this position yet.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {position.candidates.map(candidate => (
-                          <CandidateCard 
-                            key={candidate.id}
-                            candidate={candidate}
-                            electionId={currentElection.id}
-                            positionId={position.id}
-                            showVoteButton={canVote}
-                            isWinner={isPublished && winner?.id === candidate.id}
-                          />
-                        ))}
-                      </div>
+                    {election.status === 'active' && (
+                      <Button onClick={handleEndElection} className="bg-orange-600 hover:bg-orange-700">
+                        End Election
+                      </Button>
+                    )}
+                    
+                    {election.status === 'ended' && (
+                      <Button onClick={handlePublishResults} className="bg-blue-600 hover:bg-blue-700">
+                        Publish Results
+                      </Button>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </TabsContent>
-        
-        {isPublished && (
-          <TabsContent value="results" className="pt-4">
-            <div className="bg-white p-6 rounded-lg border">
-              <h2 className="text-2xl font-semibold mb-6">Election Results</h2>
-              
-              <div className="space-y-8">
-                {currentElection.positions.map(position => {
-                  // Sort candidates by votes (descending)
-                  const sortedCandidates = [...position.candidates].sort((a, b) => 
-                    (b.votes || 0) - (a.votes || 0)
-                  );
-                  
-                  const winner = sortedCandidates.length > 0 ? sortedCandidates[0] : null;
-                  const totalVotes = sortedCandidates.reduce((acc, candidate) => acc + (candidate.votes || 0), 0);
-                  
-                  return (
-                    <div key={position.id} className="border-b pb-6 last:border-0">
-                      <h3 className="text-xl font-semibold mb-3">{position.title}</h3>
-                      
-                      {winner && (
-                        <div className="bg-election-light p-4 rounded-lg mb-6 border border-election-accent">
-                          <div className="flex items-center gap-3">
-                            <img 
-                              src={winner.imageUrl || 'https://via.placeholder.com/100x100?text=No+Image'} 
-                              alt={winner.name}
-                              className="w-16 h-16 rounded-full object-cover"
-                            />
-                            <div>
-                              <div className="text-xs font-semibold text-election-accent uppercase">Winner</div>
-                              <h4 className="text-lg font-semibold">{winner.name}</h4>
-                              {winner.votes !== undefined && totalVotes > 0 && (
-                                <div className="text-sm text-gray-600">
-                                  {winner.votes} votes ({Math.round((winner.votes / totalVotes) * 100)}%)
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="space-y-4">
-                        {sortedCandidates.map((candidate, index) => (
-                          <div key={candidate.id} className="flex items-center gap-3">
-                            <div className="w-8 text-center font-medium text-gray-500">
-                              {index + 1}
-                            </div>
-                            <img 
-                              src={candidate.imageUrl || 'https://via.placeholder.com/40x40?text=No+Image'} 
-                              alt={candidate.name}
-                              className="w-10 h-10 rounded-full object-cover"
-                            />
-                            <div className="flex-grow">
-                              <div className="font-medium">{candidate.name}</div>
-                              {candidate.slogan && (
-                                <div className="text-xs text-gray-500 italic">"{candidate.slogan}"</div>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <div className="font-semibold">{candidate.votes || 0}</div>
-                              <div className="text-xs text-gray-500">votes</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      
-                      {totalVotes === 0 && (
-                        <div className="text-sm text-gray-500 mt-4">No votes were cast for this position.</div>
-                      )}
-                    </div>
-                  );
-                })}
+                </div>
               </div>
-            </div>
-          </TabsContent>
-        )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );

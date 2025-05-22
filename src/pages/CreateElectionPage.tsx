@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useElectionContext } from '@/contexts/ElectionContext';
@@ -7,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Election, ElectionType } from '@/types';
+import { toast } from "sonner";
 
 const CreateElectionPage: React.FC = () => {
   const navigate = useNavigate();
@@ -107,8 +106,17 @@ const CreateElectionPage: React.FC = () => {
     }
     
     // Create election and navigate to it
-    const election = createElection(newElection);
-    navigate(`/election/${election.id}`);
+    try {
+      const election = createElection(newElection);
+      if (election && election.id) {
+        navigate(`/election/${election.id}`);
+      } else {
+        toast.error("Failed to create election");
+      }
+    } catch (error) {
+      console.error("Error creating election:", error);
+      toast.error("Failed to create election");
+    }
   };
   
   const isFormValid = () => {
